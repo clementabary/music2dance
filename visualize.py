@@ -6,6 +6,9 @@ import networkx as nx
 
 def to_graph_data(frame):
 
+    # For visualization purposes
+    frame[:, [2, 1]] = frame[:, [1, 2]]
+
     # Create networkx graph
     G = nx.Graph()
 
@@ -80,14 +83,17 @@ def to_graph_data(frame):
     return node_trace, edge_trace
 
 
-def visualize_graph(data):
+def visualize_graph(data, id):
 
     # Create layout for graph
-    # TODO: set custom view & fix hyperparameters
     axis = dict(showbackground=False, showline=False, zeroline=False, showgrid=True,
-                showticklabels=True, title='')
-    graph_layout = go.Layout(title='Stick figure', width=450, height=550,
-                             scene=dict(xaxis=axis, yaxis=axis, zaxis=axis))
+                showticklabels=False, title='')
+    camera = dict(up=dict(x=0, y=0, z=1),
+                  center=dict(x=0, y=0, z=0),
+                  eye=dict(x=-2.5, y=-0.1, z=0.1))
+    graph_layout = go.Layout(title='Stick figure {}'.format(id),
+                             width=450, height=550, showlegend=False,
+                             scene=dict(xaxis=axis, yaxis=axis, zaxis=axis, camera=camera))
     graph_fig = go.Figure(data=data, layout=graph_layout)
     iplot(graph_fig)
 
@@ -97,11 +103,12 @@ if __name__ == '__main__':
     datasetf = 'Music-to-Dance-Motion-Synthesis-master'
     dataset = stickwise(load_dataset(datasetf))
 
-    # Take sample frame
-    example = dataset[0]
+    # Select sample frame
+    idx = 0
+    example = dataset[idx]
 
     # Build network nodes & edges
     node_trace, edge_trace = to_graph_data(example)
 
     # Visualize 3D graph
-    visualize_graph([node_trace, edge_trace])
+    visualize_graph([node_trace, edge_trace], idx)
