@@ -1,36 +1,47 @@
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from utils import StickDataset
+from utils import sampleG
 import torch
 import torch.optim as optim
 import torch.nn as nn
+import numpy as np
+import datetime
+import os
 from torch.utils.tensorboard import SummaryWriter
 from models.mlp import Generator, Discriminator
+from visualize import to_2d_graph_data, visualize_2d_graph
 
 
 if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
 torch.manual_seed(0)
 
+if not os.path.exists('./samples'):
+    os.makedirs('./samples')
+
 # Load dataset
 datasetf = 'Music-to-Dance-Motion-Synthesis-master'
-dataset = StickDataset(datasetf)
-
-# TODO: add normalization transforms
+dataset = StickDataset(datasetf, centering=True)
 
 # Training hyper-parameters
-num_train = 10000  # 70000
-num_epochs = 10
+num_train = 5000  # 70000
+num_epochs = 20
 batch_size = 8
+nb_samples = 5
+
+# Logging details
+logdir = datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + '_gan'
+os.makedirs('./samples/' + logdir)
+writer = SummaryWriter('./runs/' + logdir)
 
 # Loading dataset
-writer = SummaryWriter()
 dataloader = DataLoader(dataset, batch_size=batch_size,
                         sampler=SubsetRandomSampler(range(num_train)))
 n_iter = len(dataloader)
 
 # Creating models
-latent_vector_size = 10
+latent_vector_size = 50
 real_label = torch.full((batch_size,), 1)
 fake_label = torch.full((batch_size,), 0)
 fixed_noise = torch.randn(batch_size, latent_vector_size)
@@ -80,11 +91,21 @@ for epoch in range(num_epochs):
         writer.add_scalar('lossD', lossD, idx + epoch * n_iter)
         writer.add_scalar('lossG', lossG, idx + epoch * n_iter)
 
-        for name, param in modelG.named_parameters():
-            writer.add_histogram(name, param.data.numpy(), idx + epoch * n_iter)
-        for name, param in modelG.named_parameters():
-            writer.add_histogram(name, param.data.numpy(), idx + epoch * n_iter)
+        # for name, param in modelG.named_parameters():
+        #     writer.add_histogram(name, param.data.numpy(), idx + epoch * n_iter)
+        # for name, param in modelG.named_parameters():
+        #     writer.add_histogram(name, param.data.numpy(), idx + epoch * n_iter)
 
     lossesD.append(lossD)
     lossesG.append(lossG)
-    print('Epoch {}/{} :  LossD: {} LossG: {}'.format(epoch+1, num_epochs, lossD, lossG))
+    print('Epoch {}/{} :  LossD: {}  LossG: {}'.format(epoch+1, num_epochs, lossD, lossG))
+
+    if (epoch + 1) % 5 == 0:
+        print("Generating samples...")
+        samples = sampleG(modelG, fixed_noise)
+        if dataset.scaler is not None:
+            samples = dataset.scaler.inverse_transform(samples)
+        for s in range(nb_samples):
+            trace_2d = to_2d_graph_data(np.reshape(samples[s, :], (23, 3)))
+            filepath = './samples/' + logdir + '/e{}s{}.png'.format(epoch+1, s+1)
+            visualize_2d_graph(trace_2d, save=filepath)

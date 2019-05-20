@@ -1,37 +1,39 @@
 from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from utils import StickDataset
+from utils import sampleG
 import torch
 import torch.optim as optim
+import numpy as np
+import os
+import datetime
 from torch.utils.tensorboard import SummaryWriter
 from models.mlp import Generator, Discriminator
+from visualize import to_2d_graph_data, visualize_2d_graph
 
 
-# TODO: check normalization techniques (some EDA as well ?)
-# check architectures (layers)
-# check gradient visualizations
-# find visualization tool for stick figures
-# adapt code for colab compatibility (CUDA GPU for at scale learning)
-
-
+# TODO: check normalization techniques, architectures (layers)
 if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
 torch.manual_seed(0)
 
+if not os.path.exists('./samples'):
+    os.makedirs('./samples')
+
 # Load dataset
 datasetf = 'Music-to-Dance-Motion-Synthesis-master'
-dataset = StickDataset(datasetf)
-
-m, s = dataset.statistics()
-# dataset = StickDataset(datasetf, 'minmax')
+dataset = StickDataset(datasetf, centering=True, normalize='minmax')
 
 # Training hyper-parameters
-num_train = 10000  # 70000
+num_train = 5000  # 70000
 num_epochs = 10
 batch_size = 8
+nb_samples = 5
 
 # Loading dataset
-writer = SummaryWriter('./runs/wgan')
+logdir = datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + '_wgan'
+writer = SummaryWriter('./runs/' + logdir)
+os.makedirs('./samples/' + logdir)
 dataloader = DataLoader(dataset, batch_size=batch_size,
                         sampler=SubsetRandomSampler(range(num_train)))
 n_iter = len(dataloader)
@@ -39,10 +41,10 @@ n_critic_steps = 5
 threshold = 0.1
 
 # Creating models
-latent_vector_size = 10
+latent_vector_size = 50
 real_label = torch.full((batch_size,), 1)
 fake_label = torch.full((batch_size,), 0)
-fixed_noise = torch.randn(batch_size, latent_vector_size)
+fixed_noise = torch.randn(nb_samples, latent_vector_size)
 
 gen = Generator(latent_vector_size)
 sum(p.numel() for p in gen.parameters() if p.requires_grad)
@@ -100,3 +102,13 @@ for epoch in range(num_epochs):
     losses_gen.append(loss_gen)
     print('Epoch {}/{} : loss_critic: {} loss_gen: {}'.format(epoch+1, num_epochs,
                                                               loss_critic, loss_gen))
+
+    if (epoch + 1) % 5 == 0:
+        print("Generating samples...")
+        samples = sampleG(gen, fixed_noise)
+        if dataset.scaler is not None:
+            samples = dataset.scaler.inverse_transform(samples)
+        for s in range(nb_samples):
+            trace_2d = to_2d_graph_data(np.reshape(samples[s, :], (23, 3)))
+            filepath = './samples/' + logdir + '/e{}s{}.png'.format(epoch+1, s+1)
+            visualize_2d_graph(trace_2d, save=filepath)
