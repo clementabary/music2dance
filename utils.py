@@ -9,26 +9,30 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 class StickDataset(Dataset):
-    def __init__(self, name, normalize=None):
-        self.sticks = stickwise(load_dataset(name))
+    def __init__(self, name, centering=True, normalize=None):
+        sticks = load_dataset(name)
+        self.skeletons = stickwise(sticks, 'skeletons')
+        self.centers = stickwise(sticks, 'center')
         self.scaler = None
+        if centering:
+            self.skeletons = self.skeletons - self.centers[:, np.newaxis]
         if normalize == 'minmax':
             self.scaler = MinMaxScaler()
-            dshape = np.shape(self.sticks)
-            self.sticks = np.reshape(self.sticks, (dshape[0], -1))
-            self.sticks = self.scaler.fit_transform(self.sticks)
-            self.sticks = np.reshape(self.sticks, dshape)
-        # TODO: create attribute for 'center' & load accordingly if needed (normalization)
+            dshape = np.shape(self.skeletons)
+            self.skeletons = np.reshape(self.skeletons, (dshape[0], -1))
+            self.skeletons = self.scaler.fit_transform(self.skeletons)
+            self.skeletons = np.reshape(self.skeletons, dshape)
+        # CHECK: is centering alright ? check statistics
 
     def __len__(self):
-        return len(self.sticks)
+        return len(self.skeletons)
 
     def __getitem__(self, idx):
-        return torch.from_numpy(self.sticks[idx]).float()
+        return torch.from_numpy(self.skeletons[idx]).float()
 
     def statistics(self):
-        mean = self.sticks.mean(0)
-        std = self.sticks.std(0)
+        mean = self.skeletons.mean(0)
+        std = self.skeletons.std(0)
         return mean, std
 
 
@@ -44,10 +48,11 @@ def load_dataset(name):
     return sticks
 
 
-def stickwise(dataset):
-    sticks = np.asarray(dataset[0]['skeletons'])
+def stickwise(dataset, attribute):
+    # attribute : 'skeletons', 'center'
+    sticks = np.asarray(dataset[0][attribute])
     for seq in tqdm(dataset[1:]):
-        sticks = np.concatenate((sticks, np.asarray(seq['skeletons'])))
+        sticks = np.concatenate((sticks, np.asarray(seq[attribute])))
     return sticks
 
 
@@ -57,3 +62,14 @@ def visualize(pointsD, pointsG, title):
     plt.legend()
     plt.title(title)
     plt.show()
+
+
+def sampleG(model, noise=None):
+    if noise is None:
+        noise = torch.randn(1, model.latent_size)
+        output = model(noise)
+        example = output[0, :].detach().numpy()
+        return np.reshape(example, (23, 3))
+    else:
+        outputs = model(noise)
+        return outputs.detach().numpy()
