@@ -4,6 +4,7 @@ import torch.nn as nn
 class Generator(nn.Module):
     def __init__(self, latent_size):
         super(Generator, self).__init__()
+        self.latent_size = latent_size
         self.fc1 = nn.Linear(latent_size, 32)
         self.fc2 = nn.Linear(32, 32)
         self.fc3 = nn.Linear(32, 69)
