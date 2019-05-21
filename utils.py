@@ -4,6 +4,7 @@ import os
 import numpy as np
 from torch.utils.data import Dataset
 import torch
+import torch.autograd as autograd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 
@@ -73,3 +74,18 @@ def sampleG(model, noise=None):
     else:
         outputs = model(noise)
         return outputs.detach().numpy()
+
+
+def gradient_penalty(critic, bsize, real, fake):
+    real = real.view(real.size(0), -1)
+    fake = fake.view(fake.size(0), -1)
+    alpha = torch.rand(bsize, 1)
+    alpha = alpha.expand(real.size())
+    interpol = alpha * real + (1 - alpha) * fake
+    interpol = interpol.view(interpol.size(0), 23, 3)
+    interpol_critic = critic(interpol)
+    gradients = autograd.grad(outputs=interpol_critic, inputs=interpol,
+                              grad_outputs=torch.ones(interpol_critic.size()),
+                              create_graph=True, retain_graph=True,
+                              only_inputs=True)[0]
+    return ((gradients.norm(2, dim=1) - 1) ** 2).mean()
