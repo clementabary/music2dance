@@ -10,13 +10,16 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 class StickDataset(Dataset):
-    def __init__(self, name, centering=True, normalize=None):
-        sticks = load_dataset(name)
-        self.skeletons = stickwise(sticks, 'skeletons')
-        self.centers = stickwise(sticks, 'center')
+    def __init__(self, name, resume=False, centering=True, normalize=None):
         self.scaler = None
-        if centering:
-            self.skeletons = self.skeletons - self.centers[:, np.newaxis]
+        if resume:
+            self.skeletons = np.load(name)
+        else:
+            sticks = load_dataset(name)
+            self.skeletons = stickwise(sticks, 'skeletons')
+            self.centers = stickwise(sticks, 'center')
+            if centering:
+                self.skeletons = self.skeletons - self.centers[:, np.newaxis]
         if normalize == 'minmax':
             self.scaler = MinMaxScaler()
             dshape = np.shape(self.skeletons)
@@ -35,6 +38,9 @@ class StickDataset(Dataset):
         mean = self.skeletons.mean(0)
         std = self.skeletons.std(0)
         return mean, std
+
+    def export(self, path):
+        np.save(path, self.skeletons)
 
 
 def load_dataset(name):
@@ -66,6 +72,7 @@ def visualize(pointsD, pointsG, title):
 
 
 def sampleG(model, noise=None):
+    model.eval()
     if noise is None:
         noise = torch.randn(1, model.latent_size)
         output = model(noise)
@@ -73,19 +80,24 @@ def sampleG(model, noise=None):
         return np.reshape(example, (23, 3))
     else:
         outputs = model(noise)
-        return outputs.detach().numpy()
+        return outputs.detach().cpu().numpy()
 
 
-def gradient_penalty(critic, bsize, real, fake):
+def gradient_penalty(critic, bsize, real, fake, device=None):
     real = real.view(real.size(0), -1)
     fake = fake.view(fake.size(0), -1)
     alpha = torch.rand(bsize, 1)
-    alpha = alpha.expand(real.size())
-    interpol = alpha * real + (1 - alpha) * fake
+    if device:
+        alpha = alpha.expand(real.size()).to(device)
+    else:
+        alpha = alpha.expand(real.size())
+    interpol = alpha * real.detach().cpu() + (1 - alpha) * fake.detach().cpu()
     interpol = interpol.view(interpol.size(0), 23, 3)
+    interpol.requires_grad_(True)
     interpol_critic = critic(interpol)
     gradients = autograd.grad(outputs=interpol_critic, inputs=interpol,
-                              grad_outputs=torch.ones(interpol_critic.size()),
+                              grad_outputs=torch.ones(interpol_critic.size(), device=device),
                               create_graph=True, retain_graph=True,
                               only_inputs=True)[0]
+    gradients = gradients.view(gradients.size(0), -1)
     return ((gradients.norm(2, dim=1) - 1) ** 2).mean()

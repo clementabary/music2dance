@@ -168,6 +168,7 @@ def visualize_2d_graph(data, show=False, save=''):
         pio.write_image(graph_fig, save)
     if show:
         iplot(graph_fig)
+    return graph_fig
 
 
 def visualize_3d_graph(data, show=False):
