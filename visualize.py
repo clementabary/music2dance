@@ -3,6 +3,8 @@ import plotly.graph_objs as go
 from plotly.offline import iplot
 import networkx as nx
 import plotly.io as pio
+import numpy as np
+import cv2
 
 
 def to_2d_graph_data(frame):
@@ -186,6 +188,61 @@ def visualize_3d_graph(data, show=False):
         iplot(graph_fig)
 
 
+def draw(frame, size):
+    frame[:, 0] += size[0] // 2
+    frame[:, 1] += size[1] // 2
+    cvs = np.ones(size)
+    cvs *= (255, 255, 255)
+    color = (255, 0, 0)
+    edge_list = [(0, 1), (3, 4), (4, 5), (5, 6),
+                 (12, 13), (13, 14), (14, 15), (2, 7),
+                 (7, 8), (8, 9), (10, 11), (2, 16),
+                 (16, 17), (17, 18), (19, 20)]
+    for node in frame:
+        cv2.circle(cvs, (int(node[0]), int(node[1])), 4, color, -1)
+    for (s, f) in edge_list:
+        cv2.line(cvs,
+                 (int(frame[s][0]), int(frame[s][1])),
+                 (int(frame[f][0]), int(frame[f][1])),
+                 color, 2)
+    cv2.line(cvs,
+             (int((frame[0][0]+frame[1][0])/2), int((frame[0][1]+frame[1][1])/2)),
+             (int((frame[3][0]+frame[12][0])/2), int((frame[3][1]+frame[12][1])/2)),
+             color, 2)
+    cv2.line(cvs,
+             (int(frame[3][0]), int(frame[3][1])),
+             (int((frame[3][0]+frame[12][0])/2), int((frame[3][1]+frame[12][1])/2)),
+             color, 2)
+    cv2.line(cvs,
+             (int(frame[12][0]), int(frame[12][1])),
+             (int((frame[3][0]+frame[12][0])/2), int((frame[3][1]+frame[12][1])/2)),
+             color, 2)
+    cv2.line(cvs, (int(frame[2][0]), int(frame[2][1])),
+             (int((frame[3][0]+frame[12][0])/2), int((frame[3][1]+frame[12][1])/2)),
+             color, 2)
+    cv2.line(cvs,
+             (int(frame[9][0]), int(frame[9][1])),
+             (int((frame[10][0]+frame[11][0])/2), int((frame[10][1]+frame[11][1])/2)),
+             color, 2)
+    cv2.line(cvs,
+             (int(frame[18][0]), int(frame[18][1])),
+             (int((frame[19][0]+frame[20][0])/2), int((frame[19][1]+frame[20][1])/2)),
+             color, 2)
+    frame[:, 0] -= size[0] // 2
+    frame[:, 1] -= size[1] // 2
+    return np.flip(cvs, 0)
+
+
+def frame_to_vid(frames, name, fps):
+    w, h = 300, 300
+    size = (w, h, 3)
+    video = cv2.VideoWriter(name, cv2.VideoWriter_fourcc(*"MJPG"), float(fps), (h, w))
+    for _ in range(len(frames)):
+        video.write(draw(frames[_], size).astype('uint8'))
+    video.release()
+    cv2.destroyAllWindows()
+
+
 if __name__ == '__main__':
     # Load dataset
     datasetf = 'Music-to-Dance-Motion-Synthesis-master'
@@ -205,3 +262,6 @@ if __name__ == '__main__':
 
     # Save 2D graph instead
     visualize_2d_graph(trace_2d, save='foo.png')
+
+    # Save 2D animation
+    frame_to_vid(dataset[:100], 'foo.avi', fps=16)
