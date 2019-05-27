@@ -26,7 +26,7 @@ dataset = StickDataset(datasetf, centering=True)
 
 # Training hyper-parameters
 num_train = 5000  # 70000
-num_epochs = 20
+num_epochs = 25
 batch_size = 8
 nb_samples = 5
 
@@ -61,6 +61,7 @@ lossesG = []
 
 # Training process : vanilla GAN
 for epoch in range(num_epochs):
+    modelG.train()
     for idx, real in enumerate(dataloader):
 
         # train discriminator modelD
@@ -101,6 +102,7 @@ for epoch in range(num_epochs):
     print('Epoch {}/{} :  LossD: {}  LossG: {}'.format(epoch+1, num_epochs, lossD, lossG))
 
     if (epoch + 1) % 5 == 0:
+        modelG.eval()
         print("Generating samples...")
         samples = sampleG(modelG, fixed_noise)
         if dataset.scaler is not None:

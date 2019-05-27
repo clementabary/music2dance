@@ -58,8 +58,9 @@ optim_gen = optim.Adam(gen.parameters(), lr=0.0002)
 losses_critic = []
 losses_gen = []
 
-# Training process : vanilla GAN
+# Training process : Wasserstein GAN (with weight clipping)
 for epoch in range(num_epochs):
+    gen.train()
     for idx, real in enumerate(dataloader):
 
         loss_critic = 0
@@ -84,9 +85,9 @@ for epoch in range(num_epochs):
         optim_gen.zero_grad()
         noise = torch.randn(batch_size, latent_vector_size)
         fake = gen(noise)
-        output = critic(fake)
-        err_gen = - torch.mean(output)
-        loss_gen += err_gen.item()
+        err_real = torch.mean(critic(real))
+        err_fake = torch.mean(critic(fake))
+        err_gen = err_real - err_fake
         err_gen.backward()
         optim_gen.step()
 
@@ -104,6 +105,7 @@ for epoch in range(num_epochs):
                                                               loss_critic, loss_gen))
 
     if (epoch + 1) % 5 == 0:
+        gen.eval()
         print("Generating samples...")
         samples = sampleG(gen, fixed_noise)
         if dataset.scaler is not None:

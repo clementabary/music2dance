@@ -126,6 +126,7 @@ for epoch in range(num_epochs):
 
     # Generate visualizations with fixed noise every few epochs
     if (epoch + 1) % 5 == 0:
+        gen.eval()
         print("Generating samples...")
         samples = sampleG(gen, fixed_noise)
         if dataset.scaler is not None:
