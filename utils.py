@@ -5,7 +5,6 @@ import numpy as np
 from torch.utils.data import Dataset
 import torch
 import torch.autograd as autograd
-import matplotlib.pyplot as plt
 from sklearn.preprocessing import MinMaxScaler
 
 
@@ -18,15 +17,14 @@ class StickDataset(Dataset):
             sticks = load_dataset(name)
             self.skeletons = stickwise(sticks, 'skeletons')
             self.centers = stickwise(sticks, 'center')
-            if centering:
-                self.skeletons = self.skeletons - self.centers[:, np.newaxis]
+            if not centering:
+                self.skeletons = self.skeletons + self.centers[:, np.newaxis]
         if normalize == 'minmax':
             self.scaler = MinMaxScaler()
             dshape = np.shape(self.skeletons)
             self.skeletons = np.reshape(self.skeletons, (dshape[0], -1))
             self.skeletons = self.scaler.fit_transform(self.skeletons)
             self.skeletons = np.reshape(self.skeletons, dshape)
-        # CHECK: is centering alright ? check statistics
 
     def __len__(self):
         return len(self.skeletons)
@@ -63,14 +61,6 @@ def stickwise(dataset, attribute):
     return sticks
 
 
-def visualize(pointsD, pointsG, title):
-    plt.plot(list(range(0, pointsD.shape[0])), pointsD, label='lossD')
-    plt.plot(list(range(0, pointsG.shape[0])), pointsG, label='lossG')
-    plt.legend()
-    plt.title(title)
-    plt.show()
-
-
 def sampleG(model, noise=None):
     model.eval()
     if noise is None:
@@ -91,7 +81,7 @@ def gradient_penalty(critic, bsize, real, fake, device=None):
         alpha = alpha.expand(real.size()).to(device)
     else:
         alpha = alpha.expand(real.size())
-    interpol = alpha * real.detach().cpu() + (1 - alpha) * fake.detach().cpu()
+    interpol = alpha * real.detach() + (1 - alpha) * fake.detach()
     interpol = interpol.view(interpol.size(0), 23, 3)
     interpol.requires_grad_(True)
     interpol_critic = critic(interpol)
