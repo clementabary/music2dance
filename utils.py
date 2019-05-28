@@ -6,6 +6,7 @@ from torch.utils.data import Dataset
 import torch
 import torch.autograd as autograd
 from sklearn.preprocessing import MinMaxScaler
+import librosa
 
 
 class StickDataset(Dataset):
@@ -14,7 +15,7 @@ class StickDataset(Dataset):
         if resume:
             self.skeletons = np.load(name)
         else:
-            sticks = load_dataset(name)
+            sticks = load_sticks(name)
             self.skeletons = stickwise(sticks, 'skeletons')
             self.centers = stickwise(sticks, 'center')
             if not centering:
@@ -41,7 +42,37 @@ class StickDataset(Dataset):
         np.save(path, self.skeletons)
 
 
-def load_dataset(name):
+class SequenceDataset(Dataset):
+    def __init__(self, name):
+        sticks, musics, labels, dirs = load_all(name)
+        self.labels = labels
+        self.dirs = dirs
+        self.musics = musics
+        self.sequences = []
+        # TODO: mix-max scaler for all sequences
+        for _ in range(len(sticks)):
+            self.sequences.append(np.asarray(sticks[_]['skeletons']))
+
+    def __len__(self):
+        return (len(self.sequences))
+
+    def __getitem__(self, idx):
+        return (torch.from_numpy(self.sequences[idx]),
+                torch.from_numpy(self.musics[idx]),
+                self.labels[idx], self.dirs[idx])
+
+
+def collate_fn(batch):
+    sequences, musics, labels, dirs = zip(*batch)
+    lengths = [len(seq) for seq in sequences]
+    padded_seqs = torch.zeros(len(sequences), max(lengths), 23, 3)
+    for i, seq in enumerate(sequences):
+        end = lengths[i]
+        padded_seqs[i, :end] = seq[:end]
+    return padded_seqs, lengths, musics, labels, dirs
+
+
+def load_sticks(name):
     sticks = []
     for directory in tqdm(os.listdir('{}'.format(name))):
         directory = '{}/{}'.format(name, directory)
@@ -51,6 +82,29 @@ def load_dataset(name):
                     stick = json.load(f)
                     sticks.append(stick)
     return sticks
+
+
+def load_all(name):
+    fps = 25
+    sticks = []
+    musics = []
+    labels = []
+    dirs = []
+    for directory in tqdm(os.listdir('{}'.format(name))):
+        directory = '{}/{}'.format(name, directory)
+        if os.path.isdir(directory) and os.path.basename(directory)[0:5] == 'DANCE':
+            dirs.append(directory)
+            labels.append(os.path.basename(directory)[6])
+            with open(directory+'/config.json') as f:
+                config = json.load(f)
+                start, end = config['start_position'], config['end_position']
+                music, _ = librosa.load(directory+'/audio.mp3', sr=None,
+                                        offset=start/fps, duration=(end-start)/fps)
+                musics.append(music)
+            with open(directory+'/skeletons.json') as f:
+                stick = json.load(f)
+                sticks.append(stick)
+    return sticks, musics, labels, dirs
 
 
 def stickwise(dataset, attribute):
