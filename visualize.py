@@ -1,10 +1,12 @@
-from utils import load_dataset, stickwise
+from utils import load_sticks, stickwise
+from utils import SequenceDataset
 import plotly.graph_objs as go
 from plotly.offline import iplot
 import networkx as nx
 import plotly.io as pio
 import numpy as np
 import cv2
+import librosa
 
 
 def to_2d_graph_data(frame):
@@ -246,11 +248,12 @@ def frame_to_vid(frames, name, fps):
 if __name__ == '__main__':
     # Load dataset
     datasetf = 'Music-to-Dance-Motion-Synthesis-master'
-    dataset = stickwise(load_dataset(datasetf), 'skeletons')
+    stick_dataset = stickwise(load_sticks(datasetf), 'skeletons')
+    seq_dataset = SequenceDataset(datasetf)
 
     # Select sample frame
     idx = 0
-    example = dataset[idx]
+    example = stick_dataset[idx]
 
     # Build network nodes & edges
     trace_2d = to_2d_graph_data(example)
@@ -264,4 +267,6 @@ if __name__ == '__main__':
     visualize_2d_graph(trace_2d, save='foo.png')
 
     # Save 2D animation
-    frame_to_vid(dataset[:100], 'foo.avi', fps=16)
+    seq, audio, _, dir = seq_dataset[0]
+    librosa.output.write_wav(dir+'/audio_extract.wav', np.asarray(audio), sr=44100)
+    frame_to_vid(seq, dir+'/animation.avi', fps=25)
