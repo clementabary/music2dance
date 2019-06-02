@@ -7,6 +7,7 @@ import torch
 import torch.autograd as autograd
 from sklearn.preprocessing import MinMaxScaler
 import librosa
+import pickle
 
 
 class StickDataset(Dataset):
@@ -43,33 +44,50 @@ class StickDataset(Dataset):
 
 
 class SequenceDataset(Dataset):
-    def __init__(self, name):
-        sticks, musics, labels, dirs = load_all(name)
-        self.labels = labels
-        self.dirs = dirs
-        self.musics = musics
-        self.sequences = []
-        # TODO: mix-max scaler for all sequences
-        for _ in range(len(sticks)):
-            self.sequences.append(np.asarray(sticks[_]['skeletons']))
+    def __init__(self, name, resume=False):
+        if resume:
+            with open(name, 'rb') as f:
+                dict = pickle.load(f)
+                self.sequences = dict['sequences']
+                self.labels = dict['labels']
+                self.dirs = dict['dirs']
+        else:
+            sticks, musics, labels, dirs = load_all(name)
+            self.labels = labels
+            self.dirs = dirs
+            # self.musics = musics
+            self.sequences = []
+            # TODO: mix-max scaler for all sequences
+            for _ in range(len(sticks)):
+                self.sequences.append(np.asarray(sticks[_]['skeletons']))
 
     def __len__(self):
         return (len(self.sequences))
 
     def __getitem__(self, idx):
-        return (torch.from_numpy(self.sequences[idx]),
-                torch.from_numpy(self.musics[idx]),
+        s, e = get_positions(self.sequences[idx])
+        return (torch.from_numpy(self.sequences[idx][s:e]),
+                # torch.from_numpy(self.musics[idx]),
                 self.labels[idx], self.dirs[idx])
+
+    def export(self, pathfile):
+        dict = {'sequences': self.sequences, 'labels': self.labels, 'dirs': self.dirs}
+        with open(pathfile, 'wb') as f:
+            pickle.dump(dict, f)
+            f.close()
 
 
 def collate_fn(batch):
-    sequences, musics, labels, dirs = zip(*batch)
+    batch.sort(key=lambda x: len(x[0]), reverse=True)
+    # sequences, musics, labels, dirs = zip(*batch)
+    sequences, labels, dirs = zip(*batch)
     lengths = [len(seq) for seq in sequences]
     padded_seqs = torch.zeros(len(sequences), max(lengths), 23, 3)
     for i, seq in enumerate(sequences):
         end = lengths[i]
         padded_seqs[i, :end] = seq[:end]
-    return padded_seqs, lengths, musics, labels, dirs
+    # return padded_seqs, lengths, musics, labels, dirs
+    return padded_seqs, lengths, labels, dirs
 
 
 def load_sticks(name):
@@ -127,7 +145,7 @@ def sampleG(model, noise=None):
         return outputs.detach().cpu().numpy()
 
 
-def gradient_penalty(critic, bsize, real, fake, device=None):
+def gradient_penalty(critic, bsize, real, fake, device=None, is_seq=False):
     real = real.view(real.size(0), -1)
     fake = fake.view(fake.size(0), -1)
     alpha = torch.rand(bsize, 1)
@@ -136,7 +154,10 @@ def gradient_penalty(critic, bsize, real, fake, device=None):
     else:
         alpha = alpha.expand(real.size())
     interpol = alpha * real.detach() + (1 - alpha) * fake.detach()
-    interpol = interpol.view(interpol.size(0), 23, 3)
+    if not is_seq:
+        interpol = interpol.view(interpol.size(0), 23, 3)
+    else:
+        interpol = interpol.view(interpol.size(0), 69, -1)
     interpol.requires_grad_(True)
     interpol_critic = critic(interpol)
     gradients = autograd.grad(outputs=interpol_critic, inputs=interpol,
@@ -145,3 +166,16 @@ def gradient_penalty(critic, bsize, real, fake, device=None):
                               only_inputs=True)[0]
     gradients = gradients.view(gradients.size(0), -1)
     return ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+
+
+def get_positions(sequence, min_s=120, max_s=300):
+    l = len(sequence)
+    s = np.random.randint(0, l-min_s)
+    d = np.random.randint(min_s, min(l-s, max_s))
+    return s, s+d
+
+
+def extract_at_random(sequence, length):
+    l = sequence.shape[1]
+    idx = np.random.randint(0, l-length)
+    return sequence[:, idx:idx+length]
