@@ -25,13 +25,12 @@ class Discriminator(nn.Module):
         self.maxpool1d = nn.MaxPool1d(4, stride=1)
         self.conv4 = nn.Conv1d(512, 1, 8)
         self.relu = nn.ReLU(inplace=True)
-        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
         x = self.maxpool1d(self.conv3(x))
-        x = self.sigmoid(self.conv4(x))
+        x = self.conv4(x)
         return x.squeeze(1)
 
 
