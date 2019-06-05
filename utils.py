@@ -44,7 +44,8 @@ class StickDataset(Dataset):
 
 
 class SequenceDataset(Dataset):
-    def __init__(self, name, resume=False):
+    def __init__(self, name, resume=False, scaler=None):
+        self.scaler = None
         if resume:
             with open(name, 'rb') as f:
                 dict = pickle.load(f)
@@ -60,6 +61,13 @@ class SequenceDataset(Dataset):
             # TODO: mix-max scaler for all sequences
             for _ in range(len(sticks)):
                 self.sequences.append(np.asarray(sticks[_]['skeletons']))
+        if scaler is not None:
+            self.scaler = scaler
+            for i, seq in enumerate(self.sequences):
+                dshape = np.shape(seq)
+                seq = np.reshape(seq, (seq.shape[0], -1))
+                seq = self.scaler.transform(seq)
+                self.sequences[i] = np.reshape(seq, dshape)
 
     def __len__(self):
         return (len(self.sequences))
@@ -133,16 +141,29 @@ def stickwise(dataset, attribute):
     return sticks
 
 
-def sampleG(model, noise=None):
+def sampleG(model, noise=None, device='cpu'):
     model.eval()
     if noise is None:
-        noise = torch.randn(1, model.latent_size)
+        noise = torch.randn(1, model.latent_size, device=device)
         output = model(noise)
-        example = output[0, :].detach().numpy()
+        example = output[0, :].detach().cpu().numpy()
         return np.reshape(example, (23, 3))
     else:
         outputs = model(noise)
         return outputs.detach().cpu().numpy()
+
+
+def sampleseqG(model, seq_length, noise=None, device='cpu'):
+    model.eval()
+    if noise is None:
+        noise = torch.randn(1, seq_length, model.decoder.latent_size, device=device)
+        output = model(noise, [seq_length])
+        example = output.detach().cpu().numpy()
+        return np.reshape(example, (seq_length, 23, 3))
+    else:
+        outputs = model(noise, [seq_length]*noise.shape[0])
+        outputs = outputs.detach().cpu().numpy()
+        return np.reshape(outputs, (seq_length*noise.shape[0], 23, 3))
 
 
 def gradient_penalty(critic, bsize, real, fake, device=None, is_seq=False):
