@@ -6,7 +6,7 @@ import networkx as nx
 import plotly.io as pio
 import numpy as np
 import cv2
-import librosa
+# import librosa
 
 
 def to_2d_graph_data(frame):
@@ -267,6 +267,6 @@ if __name__ == '__main__':
     visualize_2d_graph(trace_2d, save='foo.png')
 
     # Save 2D animation
-    seq, audio, _, dir = seq_dataset[0]
-    librosa.output.write_wav(dir+'/audio_extract.wav', np.asarray(audio), sr=44100)
-    frame_to_vid(seq, dir+'/animation.avi', fps=25)
+    seq, _, dir = seq_dataset[0]
+    # librosa.output.write_wav(dir+'/audio_extract.wav', np.asarray(audio), sr=44100)
+    frame_to_vid(seq, dir+'/animation_extract.avi', fps=5)
