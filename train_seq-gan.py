@@ -2,12 +2,15 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from utils import SequenceDataset
 from utils import gradient_penalty, collate_fn, extract_at_random
+from utils import sampleseqG
 import torch
 import torch.optim as optim
 import os
+import numpy as np
 import datetime
 from models.temporal import Generator, Discriminator
 from torch.utils.tensorboard import SummaryWriter
+from visualize import frame_to_vid
 
 
 GPU = False
@@ -126,20 +129,17 @@ for epoch in range(num_epochs):
     print('Epoch {}/{} : loss_critic: {} loss_gen: {}'.format(epoch+1, num_epochs,
                                                               loss_critic, loss_gen))
 
-#     # Generate visualizations with fixed noise every few epochs
-#     if (epoch + 1) % 5 == 0:
-#         gen.eval()
-#         print("Generating samples...")
-#         samples = sampleG(gen, fixed_noise)
-#         if dataset.scaler is not None:
-#             samples = dataset.scaler.inverse_transform(samples)
-#         for s in range(nb_samples):
-#             trace_2d = to_2d_graph_data(np.reshape(samples[s, :], (23, 3)))
-#             filepath = './samples/' + logdir + '/e{}s{}.png'.format(epoch+1, s+1)
-#             visualize_2d_graph(trace_2d, save=filepath)
-#             # filepath = './samples/' + logdir + '/e{}s{}.html'.format(epoch+1, s+1)
-#             # graph_fig_2d = visualize_2d_graph(trace_2d)  # Colab
-#             # plot(graph_fig_2d, filename=filepath, auto_open=False)
-#
+    if (epoch+1) % 100 == 0:
+        gen.eval()
+        print("Generating sample animations...")
+        samples = sampleseqG(gen, seq_length, fixed_noise)
+        samples = np.reshape(samples, (seq_length*nb_samples, -1))
+        if dataset.scaler is not None:
+            samples = dataset.scaler.inverse_transform(samples)
+        samples = np.reshape(samples, (nb_samples, seq_length, 23, 3))
+        for s in range(nb_samples):
+            filepath = './samples/' + logdir + '/e{}s{}.avi'.format(epoch+1, s+1)
+            frame_to_vid(samples[s, :], filepath, fps=25)
+
 # torch.save(gen.state_dict(), './models/' + logdir + '_gen_{}.pt'.format(num_epochs))
 # torch.save(critic.state_dict(), './models/' + logdir + '_critic_{}.pt'.format(num_epochs))
