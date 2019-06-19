@@ -4,10 +4,11 @@ import os
 import numpy as np
 from torch.utils.data import Dataset
 import torch
-import torch.autograd as autograd
+import torch.nn as nn
 from sklearn.preprocessing import MinMaxScaler
 import librosa
 import pickle
+import sys
 
 
 class StickDataset(Dataset):
@@ -44,7 +45,8 @@ class StickDataset(Dataset):
 
 
 class SequenceDataset(Dataset):
-    def __init__(self, name, resume=False, scaler=None):
+    # dance_types arg for test purposes
+    def __init__(self, name, resume=False, scaler=None, dance_types=['W', 'C', 'R', 'T']):
         self.scaler = None
         if resume:
             with open(name, 'rb') as f:
@@ -53,7 +55,7 @@ class SequenceDataset(Dataset):
                 self.labels = dict['labels']
                 self.dirs = dict['dirs']
         else:
-            sticks, musics, labels, dirs = load_all(name)
+            sticks, musics, labels, dirs = load_all(name, dance_types)
             self.labels = labels
             self.dirs = dirs
             # self.musics = musics
@@ -79,7 +81,8 @@ class SequenceDataset(Dataset):
                 self.labels[idx], self.dirs[idx])
 
     def export(self, pathfile):
-        dict = {'sequences': self.sequences, 'labels': self.labels, 'dirs': self.dirs}
+        dict = {'sequences': self.sequences,
+                'labels': self.labels, 'dirs': self.dirs}
         with open(pathfile, 'wb') as f:
             pickle.dump(dict, f)
             f.close()
@@ -103,14 +106,14 @@ def load_sticks(name):
     for directory in tqdm(os.listdir('{}'.format(name))):
         directory = '{}/{}'.format(name, directory)
         if os.path.isdir(directory) and os.path.basename(directory)[0:5] == 'DANCE':
-            if os.path.exists(directory+'/skeletons.json'):
-                with open(directory+'/skeletons.json') as f:
+            if os.path.exists(directory + '/skeletons.json'):
+                with open(directory + '/skeletons.json') as f:
                     stick = json.load(f)
                     sticks.append(stick)
     return sticks
 
 
-def load_all(name):
+def load_all(name, dance_types):
     fps = 25
     sticks = []
     musics = []
@@ -119,17 +122,19 @@ def load_all(name):
     for directory in tqdm(os.listdir('{}'.format(name))):
         directory = '{}/{}'.format(name, directory)
         if os.path.isdir(directory) and os.path.basename(directory)[0:5] == 'DANCE':
-            dirs.append(directory)
-            labels.append(os.path.basename(directory)[6])
-            with open(directory+'/config.json') as f:
-                config = json.load(f)
-                start, end = config['start_position'], config['end_position']
-                music, _ = librosa.load(directory+'/audio.mp3', sr=None,
-                                        offset=start/fps, duration=(end-start)/fps)
-                musics.append(music)
-            with open(directory+'/skeletons.json') as f:
-                stick = json.load(f)
-                sticks.append(stick)
+            if os.path.basename(directory)[6] in dance_types:
+                dirs.append(directory)
+                labels.append(os.path.basename(directory)[6])
+                with open(directory + '/config.json') as f:
+                    config = json.load(f)
+                    start, end = config['start_position'], config['end_position']
+                    music, _ = librosa.load(directory + '/audio.mp3', sr=None,
+                                            offset=start / fps,
+                                            duration=(end - start) / fps)
+                    musics.append(music)
+                with open(directory + '/skeletons.json') as f:
+                    stick = json.load(f)
+                    sticks.append(stick)
     return sticks, musics, labels, dirs
 
 
@@ -156,47 +161,89 @@ def sampleG(model, noise=None, device='cpu'):
 def sampleseqG(model, seq_length, noise=None, device='cpu'):
     model.eval()
     if noise is None:
-        noise = torch.randn(1, seq_length, model.decoder.latent_size, device=device)
+        noise = torch.randn(
+            1, seq_length, model.decoder.latent_size, device=device)
         output = model(noise, [seq_length])
         example = output.detach().cpu().numpy()
         return np.reshape(example, (seq_length, 23, 3))
     else:
-        outputs = model(noise, [seq_length]*noise.shape[0])
+        outputs = model(noise, [seq_length] * noise.shape[0])
         outputs = outputs.detach().cpu().numpy()
-        return np.reshape(outputs, (seq_length*noise.shape[0], 23, 3))
-
-
-def gradient_penalty(critic, bsize, real, fake, device=None, is_seq=False):
-    real = real.view(real.size(0), -1)
-    fake = fake.view(fake.size(0), -1)
-    alpha = torch.rand(bsize, 1)
-    if device:
-        alpha = alpha.expand(real.size()).to(device)
-    else:
-        alpha = alpha.expand(real.size())
-    interpol = alpha * real.detach() + (1 - alpha) * fake.detach()
-    if not is_seq:
-        interpol = interpol.view(interpol.size(0), 23, 3)
-    else:
-        interpol = interpol.view(interpol.size(0), 69, -1)
-    interpol.requires_grad_(True)
-    interpol_critic = critic(interpol)
-    gradients = autograd.grad(outputs=interpol_critic, inputs=interpol,
-                              grad_outputs=torch.ones(interpol_critic.size(), device=device),
-                              create_graph=True, retain_graph=True,
-                              only_inputs=True)[0]
-    gradients = gradients.view(gradients.size(0), -1)
-    return ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+        return np.reshape(outputs, (seq_length * noise.shape[0], 23, 3))
 
 
 def get_positions(sequence, min_s=120, max_s=300):
     l = len(sequence)
-    s = np.random.randint(0, l-min_s)
-    d = np.random.randint(min_s, min(l-s, max_s))
-    return s, s+d
+    s = np.random.randint(0, l - min_s)
+    d = np.random.randint(min_s, min(l - s, max_s))
+    return s, s + d
 
 
 def extract_at_random(sequence, length):
     l = sequence.shape[1]
-    idx = np.random.randint(0, l-length)
-    return sequence[:, idx:idx+length]
+    idx = np.random.randint(0, l - length)
+    return sequence[:, idx:idx + length]
+
+
+def interpolate(input, fi):
+    # choose new_len
+    # delta = (len(inp)-1) / float(new_len-1)
+    # output = [interpolate(inp, i*delta) for i in range(new_len)]
+    i = int(fi)
+    f = fi - i
+    return (input[i] if f < sys.float_info.epsilon else
+            input[i] + f * (input[i + 1] - input[i]))
+
+
+def initialize_weights(net, initialisation=None, bias=None):
+    for m in net.modules():
+        if isinstance(m, nn.Conv2d):
+            if initialisation is None:
+                nn.init.xavier_normal_(m.weight)
+            else:
+                m.weight.data.normal_(initialisation[0], initialisation[1])
+            if bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.Linear):
+            if initialisation is None:
+                nn.init.xavier_normal_(m.weight)
+            else:
+                m.weight.data.normal_(initialisation[0], initialisation[1])
+            if bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.Conv1d):
+            if initialisation is None:
+                nn.init.xavier_normal_(m.weight)
+            else:
+                m.weight.data.normal_(initialisation[0], initialisation[1])
+            if bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.ConvTranspose1d):
+            if initialisation is None:
+                nn.init.xavier_normal_(m.weight)
+            else:
+                m.weight.data.normal_(initialisation[0], initialisation[1])
+            if bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.ConvTranspose2d):
+            if initialisation is None:
+                nn.init.xavier_normal_(m.weight)
+            else:
+                m.weight.data.normal_(initialisation[0], initialisation[1])
+            if bias is not None:
+                m.bias.data.zero_()
+        elif isinstance(m, nn.GRU):
+            for layer_params in m._all_weights:
+                for param in layer_params:
+                    if 'weight' in param:
+                        if initialisation is None:
+                            nn.init.xavier_normal_(m._parameters[param])
+                        else:
+                            nn.init.normal_(m._parameters[param],
+                                            initialisation[0],
+                                            initialisation[1])
+
+
+def freeze(module):
+    for param in module.parameters():
+        param.requires_grad = False
