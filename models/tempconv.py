@@ -23,9 +23,11 @@ class SequenceGenerator(nn.Module):
 
 
 class SequenceDiscriminator(nn.Module):
-    def __init__(self, channels_in, channels_h, seqlen, n_blocks=1):
+    def __init__(self, channels_in, channels_h, seqlen, init_ker=7, n_blocks=1):
         super(SequenceDiscriminator, self).__init__()
-        self.conv1 = nn.Conv1d(channels_in, channels_h, kernel_size=7, padding=3)
+        self.conv1 = nn.Conv1d(channels_in, channels_h,
+                               kernel_size=init_ker,
+                               padding=int((init_ker-1)/2))
         self.blocks = []
         for _ in range(n_blocks):
             self.blocks.append(TemporalBlock(channels_h, 7))
@@ -55,7 +57,7 @@ class DiscriminatorAlpha(nn.Module):
     def forward(self, x):
         x = self.relu(self.conv1(x))
         x = self.relu(self.conv2(x))
-        x = self.maxpool1d(self.conv3(x))
+        x = self.relu(self. maxpool1d(self.conv3(x)))
         x = self.conv4(x)
         return x.squeeze(1)
 
