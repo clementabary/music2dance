@@ -50,12 +50,10 @@ def smoothed_lips_penalty(critic, real, fake, device=None, lp=False):
     return (pseudo_grad ** 2).mean()
 
 
-def total_variation_loss(series):
+def tv_loss(sequence):
     '''
-    Not correct version
+    Total variation regularizer
+    sequence is supposed to be of shape (bsize, seq_length, coordinates)
     '''
-    bsize, seq_length, dim = series.size()
-    tv = 0
-    for idx in range(seq_length-1):
-        tv += torch.abs(series[:, idx+1, :] - series[:, idx, :])
-    return tv
+    diffs = (sequence[:, 1:, :] - sequence[:, :-1, :]).abs()
+    return diffs.sum((1, 2))
