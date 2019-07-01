@@ -2,7 +2,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.sampler import SubsetRandomSampler
 from utils import StickDataset, SequenceDataset
 from utils import collate_fn, sampleseqG  # , freeze
-from losses import gradient_penalty
+from losses import gradient_penalty, tv_loss
 from visualize import frame_to_vid
 import torch
 import torch.optim as optim
@@ -63,6 +63,7 @@ batch_size = 30              # FIXME: needs to divide num_train
 nb_samples = 5               # number of samples generated during training
 seq_length = 120             # fixed length of sequence for training
 gamma = 10                   # gradient penalty coefficient
+eta = 50                     # total variation penalty coefficient
 nblocks_gen = 2              # number of residual blocks in generator
 nblocks_critic = 3           # number of residual blocks in critic
 input_vector_size = 250      # input size for GRU layer in generator
@@ -146,7 +147,8 @@ for epoch in range(num_epochs):
                          output_size).permute(0, 2, 1)
         err_real = torch.mean(critic(real))
         err_fake = torch.mean(critic(fake))
-        err_gen = err_real - err_fake
+        tvp = tv_loss(fake)
+        err_gen = err_real - err_fake + eta * tvp
         loss_gen = err_gen.item()
         err_gen.backward()
         optim_gen.step()
