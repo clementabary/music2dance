@@ -53,7 +53,7 @@ def smoothed_lips_penalty(critic, real, fake, device=None, lp=False):
 def tv_loss(sequence):
     '''
     Total variation regularizer
-    sequence is supposed to be of shape (bsize, seq_length, coordinates)
+    sequence is supposed to be of shape (bsize, coordinates, seq_length)
     '''
-    diffs = (sequence[:, 1:, :] - sequence[:, :-1, :]).abs()
-    return diffs.sum((1, 2))
+    diffs = (sequence[:, :, 1:] - sequence[:, :, :-1]).abs()
+    return diffs.mean()
