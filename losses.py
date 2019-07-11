@@ -2,7 +2,8 @@ import torch
 import torch.autograd as autograd
 
 
-def gradient_penalty(critic, bsize, real, fake, device=None, is_seq=False, lp=False):
+def gradient_penalty(critic, bsize, real, fake,
+                     audio=None, is_seq=False, lp=False, device=None):
     '''
     Gradient penalty for both stick & sequence WGAN frameworks with regularization
     Classic WGAN-GP if lp=False
@@ -22,7 +23,10 @@ def gradient_penalty(critic, bsize, real, fake, device=None, is_seq=False, lp=Fa
     else:
         interpol = interpol.view(interpol.size(0), 69, -1)
     interpol.requires_grad_(True)
-    interpol_critic = critic(interpol)
+    if audio is not None:
+        interpol_critic = critic(interpol, audio)
+    else:
+        interpol_critic = critic(interpol)
     gradients = autograd.grad(outputs=interpol_critic, inputs=interpol,
                               grad_outputs=torch.ones(interpol_critic.size(),
                                                       device=device),
