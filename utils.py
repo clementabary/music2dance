@@ -47,14 +47,16 @@ class StickDataset(Dataset):
 
 class SequenceDataset(Dataset):
     def __init__(self, name, config, resume=False, scaler=None,
-                 dance_types=['W', 'C', 'R', 'T']):
+                 dance_types=['W', 'C', 'R', 'T'], withaudio=False):
         self.scaler = None
         self.aud_rate = config['audio_rate']
         self.vid_rate = config['video_rate']
+        self.seq_length = config['seq_length']
         self.stick_length = int(config['seq_length'] * self.vid_rate)
         self.audio_length = int(config['seq_length'] * self.aud_rate)
         self.ratio = int(config['audio_rate'] / config['video_rate'])
         self.feat_size = config['feat_size']
+        self.withaudio = withaudio
         if resume:
             with open(name, 'rb') as f:
                 dict = pickle.load(f)
@@ -83,12 +85,15 @@ class SequenceDataset(Dataset):
 
     def __getitem__(self, idx):
         s, e = get_positions(self.sequences[idx], length=self.stick_length)
-        s_a = s * self.ratio
-        e_a = s_a + self.audio_length
-        return (torch.from_numpy(self.sequences[idx][s:e]),
-                slice_sequence(torch.from_numpy(self.musics[idx][s_a:e_a]).float(),
-                               self.feat_size, self.ratio),
-                torch.from_numpy(np.asarray(self.labels[idx])), self.dirs[idx])
+        if not self.withaudio:
+            return (torch.from_numpy(self.sequences[idx][s:e]),
+                    torch.from_numpy(np.asarray(self.labels[idx])), self.dirs[idx])
+        else:
+            s_a = s * self.ratio
+            e_a = s_a + self.audio_length
+            return (torch.from_numpy(self.sequences[idx][s:e]),
+                    torch.from_numpy(self.musics[idx][s_a:e_a]).float(),
+                    torch.from_numpy(np.asarray(self.labels[idx])), self.dirs[idx])
 
     def resample_audio(self, new_rate):
         for i in tqdm(range(len(self.musics))):
@@ -96,6 +101,16 @@ class SequenceDataset(Dataset):
             self.musics[i] = resample(self.musics[i], nb_samples)
         self.aud_rate = new_rate
         self.ratio = int(new_rate / self.vid_rate)
+        self.audio_length = int(self.seq_length * new_rate)
+
+    def truncate(self):
+        # Music-to-Dance-Motion-synthesis dataset being incorrect
+        for i in range(len(self)):
+            al = int(len(self.musics[i])/self.aud_rate)
+            sl = int(len(self.sequences[i])/self.vid_rate)
+            mini = min(al, sl)
+            self.musics[i] = self.musics[i][:int(mini*self.aud_rate)]
+            self.sequences[i] = self.sequences[i][:int(mini*self.vid_rate)]
 
     def export(self, pathfile):
         dict = {'sequences': self.sequences,
@@ -105,19 +120,23 @@ class SequenceDataset(Dataset):
             f.close()
 
 
-def collate_fn(batch):
+def collate_fn(batch, withaudio=True):
     batch.sort(key=lambda x: len(x[0]), reverse=True)
-    sequences, musics, labels, dirs = zip(*batch)
-    # sequences, labels, dirs = zip(*batch)
+    if withaudio:
+        sequences, musics, labels, dirs = zip(*batch)
+        musics = torch.stack(musics)
+    else:
+        sequences, labels, dirs = zip(*batch)
     labels = torch.stack(labels)
-    musics = torch.stack(musics)
     lengths = [len(seq) for seq in sequences]
     padded_seqs = torch.zeros(len(sequences), max(lengths), 23, 3)
     for i, seq in enumerate(sequences):
         end = lengths[i]
         padded_seqs[i, :end] = seq[:end]
-    return padded_seqs, lengths, musics, labels, dirs
-    # return padded_seqs, lengths, labels, dirs
+    if withaudio:
+        return padded_seqs, lengths, musics, labels, dirs
+    else:
+        return padded_seqs, lengths, labels, dirs
 
 
 def load_sticks(name):
@@ -126,7 +145,7 @@ def load_sticks(name):
         directory = '{}/{}'.format(name, directory)
         if os.path.isdir(directory) and os.path.basename(directory)[0:5] == 'DANCE':
             if os.path.basename(directory)[6] == 'W':
-                file = '/fixed_skeletons.json'
+                file = '/new_skeletons.json'
             else:
                 file = '/skeletons.json'
             if os.path.exists(directory + file):
@@ -136,8 +155,8 @@ def load_sticks(name):
     return sticks
 
 
-def load_all(name, dance_types):
-    fps = 25
+def load_all(name, dance_types, augment=False):
+    # fps = 25
     sticks = []
     musics = []
     labels = []
@@ -149,14 +168,15 @@ def load_all(name, dance_types):
                 dirs.append(directory)
                 labels.append(os.path.basename(directory)[6])
                 with open(directory + '/config.json') as f:
-                    config = json.load(f)
-                    start, end = config['start_position'], config['end_position']
-                    music, _ = librosa.load(directory + '/audio_extract.wav', sr=None,
-                                            offset=start / fps,
-                                            duration=(end - start) / fps)
+                    # config = json.load(f)
+                    # start, end = config['start_position'], config['end_position']
+                    # music, _ = librosa.load(directory + '/audio_extract.wav', sr=None,
+                    #                         offset=start / fps,
+                    #                         duration=(end - start) / fps)
+                    music, _ = librosa.load(directory + '/audio_extract.wav', sr=None)
                     musics.append(music)
                 if os.path.basename(directory)[6] == 'W':
-                    file = '/fixed_skeletons.json'
+                    file = '/new_skeletons.json'
                 else:
                     file = '/skeletons.json'
                 with open(directory + file) as f:
@@ -283,17 +303,28 @@ def one_hot_encode(labels):
     return encoded_types.astype(int)
 
 
-def slice_sequence(seq, feat_size, cutting_stride):
-    pad_samples = feat_size - cutting_stride
+def slice_audio_sequence(seq, audio_feat_samples, cutting_stride, pad_samples):
     pad_left = torch.zeros(pad_samples // 2)
     pad_right = torch.zeros(pad_samples - pad_samples // 2)
 
     seq = torch.cat((pad_left, seq), 0)
     seq = torch.cat((seq, pad_right), 0)
 
-    stacked = seq.narrow(0, 0, feat_size).unsqueeze(0)
-    iterations = (seq.size(0) - feat_size) // cutting_stride + 1
+    stacked = seq.narrow(0, 0, audio_feat_samples).unsqueeze(0)
+    iterations = (seq.size()[0] - audio_feat_samples) // cutting_stride + 1
     for i in range(1, iterations):
         stacked = torch.cat((stacked, seq.narrow(
-            0, i * cutting_stride, feat_size).unsqueeze(0)))
+            0, i * cutting_stride, audio_feat_samples).unsqueeze(0)))
     return stacked
+
+
+def slice_audio_batch(batch, audio_feat_samples, cutting_stride, pad_samples):
+    if len(batch.size()) == 1:
+        return slice_audio_sequence(batch, audio_feat_samples,
+                                    cutting_stride, pad_samples)
+    else:
+        sliced_batch = []
+        for _ in range(batch.size(0)):
+            sliced_batch.append(slice_audio_sequence(
+                batch[_], audio_feat_samples, cutting_stride, pad_samples))
+        return torch.stack(sliced_batch)
