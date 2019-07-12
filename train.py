@@ -8,19 +8,20 @@ import torch.optim as optim
 import os
 import datetime
 import numpy as np
-from models.withaudio import SequenceGenerator, SequenceDiscriminator
+from models.withaudiolight import SequenceGenerator, SequenceDiscriminator
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.tensorboard import SummaryWriter
+import argparse
+import json
 
 # Check for GPU access
-GPU = True
-device_idx = 0
-if GPU:
-    device = torch.device("cuda:" + str(device_idx)
-                          if torch.cuda.is_available() else "cpu")
-else:
-    device = torch.device("cpu")
-print(device)
+parser = argparse.ArgumentParser()
+parser.add_argument("-d", "--device", type=int, help="choose gpu id")
+parser.add_argument("-n", "--name", type=str, help="name experiment")
+opts = parser.parse_args()
+
+device_idx = opts.device
+device = torch.device("cuda:" + str(device_idx) if torch.cuda.is_available() else "cpu")
 
 if torch.cuda.is_available():
     torch.backends.cudnn.deterministic = True
@@ -30,13 +31,13 @@ torch.manual_seed(0)
 if not os.path.exists('./runs'):
     os.makedirs('./runs')
 
-logdir = datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + '_seq-wgan-gp'
+logdir = datetime.datetime.now().strftime("%Y%m%d-%H%M%S") + opts.name
 os.makedirs('./runs/' + logdir)
 
 # Training hyper-parameters
-num_train = 60               # 61 in total (122 with mirror augmentation) FIXME: Waltz is corrupted
-num_epochs = 100000          # approximately 8h on Colab
-batch_size = 30              # FIXME: needs to divide num_train
+num_train = 120              # 61 in total (122 with mirror augmentation)
+num_epochs = 100000           # approximately 8h on Colab
+batch_size = 8               # FIXME: needs to divide num_train
 window_size = 0.2            # width of audio window (in s)
 nb_samples = 5               # number of samples generated during training
 seq_length = 4.8             # fixed length of sequence for training
@@ -51,59 +52,63 @@ n_cells = 2                  # number of GRU layers in noise generator
 size = 128                   # size of FC layers in decoder
 channels = 256               # number of channels in convolutional discriminator
 output_size = 69             # corresponds to 3*23 joints
-lr_gen = 0.0005              # learning rate for generator
-lr_critic = 0.0005           # learning rate for critic
-n_critic_steps = 5           # times critic is updated before generator
+lr_gen = 0.0002              # learning rate for generator
+lr_critic = 0.0002           # learning rate for critic
+n_critic_steps = 8           # times critic is updated before generator
 freeze_epoch = False         # number of epochs before freezing decoder
 init_kernel = 25             # kernel of first 1D convolution in critic
 code_size = 100              # code size before concatening audio-stick embeddings
 
-config = {'audio_rate': 44100, 'video_rate': 25, 'feat_size': window_size, 'seq_length': seq_length}
+config = {'audio_rate': 16000,
+          'video_rate': 25,
+          'feat_size': window_size,
+          'seq_length': seq_length}
 
 # Creating datasets
-# FIXME: if use augmentation, change scaler
-sticks = StickDataset('./data/fixed_centered_skeletons.npy',
-                      resume=True,
-                      normalize='minmax')
-
-dataset = SequenceDataset('./Music-to-Dance-Motion-Synthesis-master', config,
+print("Loading sticks and sequences datasets...")
+sticks = StickDataset('../Music-to-Dance-Motion-Synthesis-master', normalize='minmax')
+dataset = SequenceDataset('../Music-to-Dance-Motion-Synthesis-master', config,
                           scaler=sticks.scaler, withaudio=True)
-dataset.resample_audio(16000)
+# dataset.resample_audio(16000)
 dataset.truncate()
 
 # Sequence parameters
+stick_length = dataset.stick_length
 cutting_stride = dataset.ratio
 audio_feat_samples = int(window_size * dataset.aud_rate)
 pad_samples = audio_feat_samples - cutting_stride
 
-# Creating models
-gen = SequenceGenerator(window_size, input_vector_size, latent_vector_size,
-                        size, output_size, nblocks_gen, n_cells)
-print(sum(p.numel() for p in gen.parameters() if p.requires_grad))
-gen.to(device)
 
-critic = SequenceDiscriminator(
-    output_size, channels, seq_length, init_kernel, nblocks_critic)
-print(sum(p.numel() for p in critic.parameters() if p.requires_grad))
-critic.to(device)
+# Creating models
+print("Loading models..")
+gen = SequenceGenerator(audio_feat_samples, input_vector_size, latent_vector_size,
+                        size, output_size, nblocks_gen, n_cells, device=device)
+# print(sum(p.numel() for p in gen.parameters() if p.requires_grad))
+
+critic = SequenceDiscriminator(output_size, channels, code_size,
+                               dataset.stick_length, device=device)
+# print(sum(p.numel() for p in critic.parameters() if p.requires_grad))
 
 # Creating optimizers and schedulers
 optim_critic = optim.Adam(critic.parameters(), lr=lr_critic)
 optim_gen = optim.Adam(gen.parameters(), lr=lr_gen)
-scheduler_critic = MultiStepLR(optim_critic, milestones=[10000, 35000, 50000], gamma=0.9)
-scheduler_gen = MultiStepLR(optim_gen, milestones=[10000, 35000, 50000], gamma=0.9)
+scheduler_critic = MultiStepLR(optim_critic, milestones=[10000, 35000, 50000], gamma=0.8)
+scheduler_gen = MultiStepLR(optim_gen, milestones=[10000, 35000, 50000], gamma=0.8)
 
 # Logging
+print("Prepare for logging..")
 writer = SummaryWriter('./runs/' + logdir + '/logging')
 sampledir = './runs/' + logdir + '/samples'
 os.makedirs(sampledir)
+modeldir = './runs/' + logdir + '/models'
+os.makedirs(modeldir)
 
 # Loading data
 # BE CAREFUL: check if len train/valid can be divided by batch_size !
-dataset_size = len(dataset)
+print("Loading data..")
+dataset_size = num_train
 indices = list(range(dataset_size))
 validation_split = .2
-random_seed = 42
 split = int(np.floor(validation_split * dataset_size))
 np.random.shuffle(indices)
 train_indices, val_indices = indices[split:], indices[:split]
@@ -115,24 +120,27 @@ train_dataloader = DataLoader(dataset, batch_size=batch_size,
 valid_dataloader = DataLoader(dataset, batch_size=batch_size, collate_fn=collate_fn,
                               sampler=train_sampler)
 n_valid_steps = 1
+n_visual_steps = 100
 criterion = torch.nn.L1Loss(reduction='mean')
 
-# Training process : "Sequential" Wasserstein GAN-GP/LP
+print("Start training..")
+# Training process : "Sequential" Wasserstein GAN-GP/LP with audio conditioning
 total_iterations = 0
 for epoch in range(num_epochs):
     gen.train()
     for (real, _, audio, _, _) in train_dataloader:
         total_iterations += 1
-        real = real.to(device)
-        audio = audio.to(device)
         optim_critic.zero_grad()
         audio_slices = slice_audio_batch(audio, audio_feat_samples,
                                          cutting_stride, pad_samples)
+        real = real.to(device)
+        audio = audio.to(device)
+        audio_slices = audio_slices.to(device)
         audio = audio.unsqueeze(1)
-        fake = gen(audio_slices, [seq_length] * batch_size)
-        fake = fake.view(batch_size, seq_length, output_size).permute(
+        fake = gen(audio_slices, [stick_length] * batch_size)
+        fake = fake.view(batch_size, stick_length, output_size).permute(
             0, 2, 1).contiguous()
-        real = real.view(batch_size, seq_length, output_size).permute(
+        real = real.view(batch_size, stick_length, output_size).permute(
             0, 2, 1).contiguous()
         gp = gradient_penalty(critic, batch_size, real, fake, audio,
                               is_seq=True, lp=True, device=device)
@@ -149,8 +157,8 @@ for epoch in range(num_epochs):
 
         # Train generator gen
         optim_gen.zero_grad()
-        fake = gen(audio_slices, [seq_length] * batch_size)
-        fake = fake.view(batch_size, seq_length,
+        fake = gen(audio_slices, [stick_length] * batch_size)
+        fake = fake.view(batch_size, stick_length,
                          output_size).permute(0, 2, 1)
         err_l1 = criterion(real, fake)
         err_real = torch.mean(critic(real, audio))
@@ -175,8 +183,51 @@ for epoch in range(num_epochs):
         val_loss = []
         for (real, _, audio, _, _) in valid_dataloader:
             real = real.to(device)
-            fake = gen(audio_slices, [seq_length] * batch_size)
-            fake = fake.view(batch_size, seq_length, output_size).permute(0, 2, 1)
+            real = real.view(batch_size, stick_length, output_size).permute(0, 2, 1)
+            fake = gen(audio_slices, [stick_length] * batch_size)
+            fake = fake.view(batch_size, stick_length, output_size).permute(0, 2, 1)
             val_loss.append(criterion(real, fake).item())
         err_val = np.mean(val_loss)
         writer.add_scalar('l1_loss_val', err_val, total_iterations)
+
+    if (epoch + 1) % 100 == 0:
+        print("Epoch: {} | LossG : {}, LossD : {}, L1 train: {}, L1 val: {}".format(
+            epoch + 1, loss_gen, loss_critic, err_l1, err_val))
+
+    if (epoch + 1) % 5000 == 0:
+        # Saving weights
+        torch.save(gen.state_dict(), modeldir + '/gpgen_{}.pt'.format(epoch + 1))
+        torch.save(critic.state_dict(), modeldir + '/gpcritic_{}.pt'.format(epoch + 1))
+
+# Saving architectures
+with open('./runs/' + logdir + '/model_gen.txt', 'w+') as f:
+    f.write(str(gen))
+    f.close()
+
+with open('./runs/' + logdir + '/model_critic.txt', 'w+') as f:
+    f.write(str(critic))
+    f.close()
+
+# Saving hyperparameters
+config = {'num_train': num_train,
+          'num_epochs': num_epochs,
+          'batch_size': batch_size,
+          'nb_samples': nb_samples,
+          'seq_length': seq_length,
+          'gamma': gamma,
+          'nblocks_gen': nblocks_gen,
+          'nblocks_critic': nblocks_critic,
+          'input_vector_size': input_vector_size,
+          'latent_vector_size': latent_vector_size,
+          'size': size,
+          'channels': channels,
+          'output_size': output_size,
+          'lr_gen': lr_gen,
+          'lr_critic': lr_critic,
+          'n_critic_steps': n_critic_steps,
+          'n_cells': n_cells,
+          'lp': True
+          }
+
+with open('./runs/' + logdir + '/config.json', 'w') as f:
+    json.dump(config, f)
