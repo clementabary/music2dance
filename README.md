@@ -4,10 +4,9 @@ The dataset comes from [Music-to-Dance-Motion-synthesis](https://github.com/Musi
 
 :grey_exclamation: The dataset is corrupted. Waltz sequences are 4 times slower and need to be interpolated. Plus, audio and stick sequences are not synchronized. To be continued.
 
-<div style="text-align:center">
-  <figcaption>Mean stick figure across dataset</figcaption>
-  <img src="./images/mean.png" alt="Mean figure" width="30%">
-</div>
+<p align="center">
+  <img src="./images/mean.png" alt="Mean figure" width="30%" title="Mean stick figure across dataset">
+</p>
 
 
 ## Implementation of WGANs to generate stick figures
@@ -17,10 +16,11 @@ Dance as motion capture is simply a sequence of stick frames : the skeleton is t
 Here a residual fully-connected network is used to generate those samples. The architecture is as follows :
 
 
-<div style="text-align:center">
+<p align="center">
   <img src="./images/phase1/stickgen.png" width="60%">
-</div>
+</p>
 <br>
+
 Here are generated samples :
 <div style="text-align:center">
 <img src="./images/phase1/e35s1.png" width="19%">
@@ -43,9 +43,9 @@ The architecture of the GAN is as follows :
 - The critic has a different architecture : it is a 1-dimensional temporal convolutional network, where the input is a sequence of stick figures whose joint coordinates are passed as channels. The network is made out of several temporal blocks in a similar fashion to fully connected ones mentioned above.
 
 <br>
-<div style="text-align:center">
+<p align="center">
   <img src="./images/phase2/seqgen.png" width="60%">
-</div>
+</p>
 <br>
 
 The model is trained on sequences of 4.8s hence 120 skeleton frames. Here are generated samples :
@@ -66,12 +66,12 @@ The architecture of the GAN is as follows :
 - The critic takes as input a sequence of pose vectors and an audio signal. It outputs a scalar for each music-dance pair. The discriminator is made up of two different encoders, one for each modality. Their output codes are concatenated one to another before being input to the fusion network, which is as simple as a stack of two fully-connected layers.
 
 <br>
-<div style="text-align:center">
+<p align="center">
   <img src="./images/phase3/generator.png" width="60%">
-</div>
-<div style="text-align:center">
+</p>
+<p align="center">
   <img src="./images/phase3/critic.png" width="80%">
-</div>
+</p>
 <br>
 
 *Coming soon*
