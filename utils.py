@@ -58,12 +58,17 @@ class SequenceDataset(Dataset):
         self.feat_size = config['feat_size']
         self.withaudio = withaudio
         if resume:
-            with open(name, 'rb') as f:
-                dict = pickle.load(f)
-                self.sequences = dict['sequences']
-                self.labels = dict['labels']
-                self.dirs = dict['dirs']
-                # TODO: add self.musics setter
+            self.sequences = name['sequences']
+            self.labels = name['labels']
+            self.dirs = name['dirs']
+            if withaudio:
+                self.musics = name['musics']
+            # with open(name, 'rb') as f:
+            #     dict = pickle.load(f)
+            #     self.sequences = dict['sequences']
+            #     self.labels = dict['labels']
+            #     self.dirs = dict['dirs']
+            #     # TODO: add self.musics setter
         else:
             sticks, musics, labels, dirs = load_all(name, dance_types)
             self.labels = one_hot_encode(labels)
@@ -144,6 +149,8 @@ def load_sticks(name):
     for directory in tqdm(os.listdir('{}'.format(name))):
         directory = '{}/{}'.format(name, directory)
         if os.path.isdir(directory) and os.path.basename(directory)[0:5] == 'DANCE':
+            if os.path.basename(directory)[-3:] == 'bis':
+                continue
             if os.path.basename(directory)[6] == 'W':
                 file = '/new_skeletons.json'
             else:
@@ -165,6 +172,8 @@ def load_all(name, dance_types, augment=False):
         directory = '{}/{}'.format(name, directory)
         if os.path.isdir(directory) and os.path.basename(directory)[0:5] == 'DANCE':
             if os.path.basename(directory)[6] in dance_types:
+                if os.path.basename(directory)[-3:] == 'bis':
+                    continue
                 dirs.append(directory)
                 labels.append(os.path.basename(directory)[6])
                 with open(directory + '/config.json') as f:
@@ -173,7 +182,7 @@ def load_all(name, dance_types, augment=False):
                     # music, _ = librosa.load(directory + '/audio_extract.wav', sr=None,
                     #                         offset=start / fps,
                     #                         duration=(end - start) / fps)
-                    music, _ = librosa.load(directory + '/audio_extract.wav', sr=None)
+                    music, _ = librosa.load(directory + '/resampled_audio_extract.wav', sr=None)
                     musics.append(music)
                 if os.path.basename(directory)[6] == 'W':
                     file = '/new_skeletons.json'
@@ -206,6 +215,20 @@ def sampleG(model, noise=None, device='cpu'):
 
 
 def sampleseqG(model, stick_length, noise=None, device='cpu'):
+    model.eval()
+    if noise is None:
+        noise = torch.randn(
+            1, stick_length, model.input_size, device=device)
+        output = model(noise, [stick_length])
+        example = output.detach().cpu().numpy()
+        return np.reshape(example, (stick_length, 23, 3))
+    else:
+        outputs = model(noise, [stick_length] * noise.shape[0])
+        outputs = outputs.detach().cpu().numpy()
+        return np.reshape(outputs, (stick_length * noise.shape[0], 23, 3))
+
+
+def sampleaudioG(model, stick_length, noise=None, device='cpu'):
     model.eval()
     if noise is None:
         noise = torch.randn(
@@ -303,9 +326,9 @@ def one_hot_encode(labels):
     return encoded_types.astype(int)
 
 
-def slice_audio_sequence(seq, audio_feat_samples, cutting_stride, pad_samples):
-    pad_left = torch.zeros(pad_samples // 2)
-    pad_right = torch.zeros(pad_samples - pad_samples // 2)
+def slice_audio_sequence(seq, audio_feat_samples, cutting_stride, pad_samples, device):
+    pad_left = torch.zeros(pad_samples // 2).to(device)
+    pad_right = torch.zeros(pad_samples - pad_samples // 2).to(device)
 
     seq = torch.cat((pad_left, seq), 0)
     seq = torch.cat((seq, pad_right), 0)
@@ -318,13 +341,32 @@ def slice_audio_sequence(seq, audio_feat_samples, cutting_stride, pad_samples):
     return stacked
 
 
-def slice_audio_batch(batch, audio_feat_samples, cutting_stride, pad_samples):
+def slice_audio_batch(batch, audio_feat_samples, cutting_stride, pad_samples, device="cpu"):
     if len(batch.size()) == 1:
         return slice_audio_sequence(batch, audio_feat_samples,
-                                    cutting_stride, pad_samples)
+                                    cutting_stride, pad_samples, device)
     else:
         sliced_batch = []
         for _ in range(batch.size(0)):
             sliced_batch.append(slice_audio_sequence(
-                batch[_], audio_feat_samples, cutting_stride, pad_samples))
+                batch[_], audio_feat_samples, cutting_stride, pad_samples, device))
         return torch.stack(sliced_batch)
+
+
+def gen_rand_noise_with_label(num_classes, batch_size, seq_length, output_size,
+                              label=None, noise=None, device="cpu"):
+    if label is None:
+        label = np.random.randint(0, num_classes, batch_size)
+    if noise is None:
+        noise = np.random.normal(0, 1, (batch_size, output_size, seq_length))
+    prefix = np.zeros((batch_size, num_classes, seq_length))
+    prefix[np.arange(batch_size), label] = 1
+    noise[np.arange(batch_size), :num_classes] = prefix[np.arange(batch_size)]
+    noise = torch.from_numpy(noise).float()
+    noise = noise.to(device)
+    label = torch.from_numpy(label).to(device)
+    return noise, label
+
+
+def nparams(model):
+    return sum([p.numel() for p in model.parameters()])

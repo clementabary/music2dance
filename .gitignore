@@ -1,5 +1,7 @@
 Music-to-Dance-Motion-Synthesis-master/
-
 runs/
-
+logs/
 __pycache__/
+data/
+results/
+samples/

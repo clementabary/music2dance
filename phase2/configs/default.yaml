@@ -1,0 +1,30 @@
+# Training hyper-parameters
+num_train: 120              # 61 in total (122 with mirror augmentation)
+num_epochs: 100000          # approximately 8h on Colab
+batch_size: 24              # FIXME: needs to divide num_train
+nb_samples: 5               # number of samples generated during training
+seq_length: 4.8             # fixed length of sequence for training
+gamma: 10                   # gradient penalty coefficient
+eta: 50                     # total variation penalty coefficient
+nblocks_gen: 2              # number of residual blocks in generator
+nblocks_critic: 3           # number of residual blocks in critic
+input_vector_size: 50       # input size for GRU layer in generator
+latent_vector_size: 50     # output size of GRU and input size for decoder
+n_cells: 3                  # number of GRU layers in noise generator
+size: 256                   # size of FC layers in decoder
+channels: 128               # number of channels in convolutional discriminator
+output_size: 69             # corresponds to 3*23 joints
+lr_gen: 0.0005              # learning rate for generator
+lr_critic: 0.0005           # learning rate for critic
+n_critic_steps: 8           # times critic is updated before generator
+freeze_epoch: False         # number of epochs before freezing decoder
+init_kernel: 25             # kernel of first 1D convolution in critic
+
+dance_types: ['W', 'C', 'R', 'T']
+
+dataset:
+  audio_rate: 16000
+  video_rate: 25
+  feat_size: 0.2
+  seq_length: 4.8
+folder: '../Music-to-Dance-Motion-Synthesis-master'

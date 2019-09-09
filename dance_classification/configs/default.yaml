@@ -1,0 +1,14 @@
+# Training hyper-parameters
+num_epochs: 10000
+batch_size: 49
+seq_length: 4.8
+lr: 0.0002
+
+dance_types: ['W', 'C', 'R', 'T']
+
+dataset:
+  audio_rate: 16000
+  video_rate: 25
+  feat_size: 0.2
+  seq_length: 4.8
+folder: '../../Music-to-Dance-Motion-Synthesis-master'

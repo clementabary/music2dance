@@ -1,0 +1,13 @@
+folder: "../Music-to-Dance-Motion-Synthesis-master"
+num_train: 133888
+num_epochs: 40
+batch_size: 64
+gamma: 10
+nblocks_gen: 2
+nblocks_critic: 2
+latent_vector_size: 50
+size: 128
+output_size: 69
+lr_gen: 0.0001
+lr_critic: 0.0001
+n_critic_steps: 5

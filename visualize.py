@@ -175,7 +175,7 @@ def visualize_2d_graph(data, show=False, save=''):
     return graph_fig
 
 
-def visualize_3d_graph(data, show=False):
+def visualize_3d_graph(data, show=False, save=''):
 
     # Create layout for graph
     axis = dict(showbackground=False, showline=False, zeroline=False, showgrid=True,
@@ -188,6 +188,8 @@ def visualize_3d_graph(data, show=False):
     graph_fig = go.Figure(data=data, layout=graph_layout)
     if show:
         iplot(graph_fig)
+    if save.endswith('.png'):
+        pio.write_image(graph_fig, save)
 
 
 def draw(frame, size):

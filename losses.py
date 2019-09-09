@@ -2,8 +2,8 @@ import torch
 import torch.autograd as autograd
 
 
-def gradient_penalty(critic, bsize, real, fake,
-                     audio=None, is_seq=False, lp=False, device=None):
+def gradient_penalty(critic, bsize, real, fake, audio=None,
+                     is_seq=False, is_cond=False, lp=False, device=None):
     '''
     Gradient penalty for both stick & sequence WGAN frameworks with regularization
     Classic WGAN-GP if lp=False
@@ -24,21 +24,40 @@ def gradient_penalty(critic, bsize, real, fake,
         interpol = interpol.view(interpol.size(0), 69, -1)
     interpol.requires_grad_(True)
     if audio is not None:
+        audio.requires_grad_(True)
+    if (audio is not None) and (not is_cond):
         interpol_critic = critic(interpol, audio)
-    else:
+        inputs = (interpol, audio)
+    elif (audio is not None) and is_cond:
+        interpol_critic, _ = critic(interpol, audio)
+        inputs = (interpol, audio)
+    elif (audio is None) and (not is_cond):
         interpol_critic = critic(interpol)
-    gradients = autograd.grad(outputs=interpol_critic, inputs=interpol,
+        inputs = interpol
+    elif (audio is None) and is_cond:
+        interpol_critic, _ = critic(interpol)
+        inputs = interpol
+    gradients = autograd.grad(outputs=interpol_critic, inputs=inputs,
                               grad_outputs=torch.ones(interpol_critic.size(),
                                                       device=device),
                               create_graph=True, retain_graph=True,
-                              only_inputs=True)[0]
-    gradients = gradients.view(gradients.size(0), -1)
-    if lp:  # WGAN-LP
-        bgrad = gradients.norm(2, dim=1) - 1
-        bgrad[bgrad < 0] = 0
-        return (bgrad ** 2).mean()
-    else:  # WGAN-GP
-        return ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+                              only_inputs=True)
+    if audio is None:
+        gradients = gradients[0].view(gradients[0].size(0), -1)
+        if lp:  # WGAN-LP
+            bgrad = gradients.norm(2, dim=1) - 1
+            bgrad[bgrad < 0] = 0
+            return (bgrad ** 2).mean()
+        else:  # WGAN-GP
+            gradients_norm = torch.sqrt(
+                torch.sum(gradients ** 2, dim=1) + 1e-12)
+            return ((gradients_norm - 1) ** 2).mean()
+    else:
+        g0 = gradients[0].view(gradients[0].size(0), -1)
+        g1 = gradients[1].view(gradients[0].size(0), -1)
+        gnorm0 = torch.sqrt(torch.sum(g0 ** 2, dim=1) + 1e-12)
+        gnorm1 = torch.sqrt(torch.sum(g1 ** 2, dim=1) + 1e-12)
+        return ((gnorm0 - 1) ** 2).mean() + ((gnorm1 - 1) ** 2).mean()
 
 
 def smoothed_lips_penalty(critic, real, fake, device=None, lp=False):
@@ -61,3 +80,10 @@ def tv_loss(sequence):
     '''
     diffs = (sequence[:, :, 1:] - sequence[:, :, :-1]).abs()
     return diffs.mean()
+
+
+def jerkiness(sequence):
+    diffs = (sequence[:, :, 3:] - 3 * sequence[:, :, 2:-1] +
+             3 * sequence[:, :, 1:-2] - sequence[:, :, :-3])
+    diffs = diffs**2
+    return diffs.sum(dim=1).mean()
